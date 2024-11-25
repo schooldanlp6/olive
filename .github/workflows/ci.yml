@@ -30,18 +30,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          #- build-type: RelWithDebInfo
-          #  cc-compiler: gcc
-          #  cxx-compiler: g++
-          #  compiler-name: GCC 9.3.1
-          #  cmake-gen: Ninja
-          #  os-name: Linux (CentOS 7)
           - build-type: RelWithDebInfo
-            cc-compiler: clang
-            cxx-compiler: clang++
-            compiler-name: Clang 10.0.0
+            cc-compiler: gcc
+            cxx-compiler: g++
+            compiler-name: GCC 9.3.1
             cmake-gen: Ninja
             os-name: Linux (CentOS 7)
+          #- build-type: RelWithDebInfo
+           # cc-compiler: clang
+           # cxx-compiler: clang++
+           # compiler-name: Clang 10.0.0
+           # cmake-gen: Ninja
+           # os-name: Linux (CentOS 7)
     name: |
       ${{ matrix.os-name }}
       <${{ matrix.compiler-name }},
@@ -79,17 +79,14 @@ jobs:
             -DCMAKE_C_COMPILER="${{ matrix.cc-compiler }}" \
             -DCMAKE_CXX_COMPILER="${{ matrix.cxx-compiler }}" \
             $CMAKE_ARGS
-
       - name: Build
         working-directory: build
         run: |
           cmake --build .
-
       - name: Test
         working-directory: build
         run: |
           ctest -C ${{ matrix.build-type }} -V
-
       - name: Create Package
         id: package
         working-directory: build
@@ -98,10 +95,8 @@ jobs:
         run: |
           # Create install tree
           cmake --install app --prefix appdir/usr
-
           # Inject custom AppRun (linuxdeployqt won't replace if it already exists)
           cp $GITHUB_WORKSPACE/app/packaging/linux/AppRun appdir
-
           # Process AppDir
           /usr/local/linuxdeployqt-x86_64.AppImage \
             appdir/usr/share/applications/org.olivevideoeditor.Olive.desktop \
@@ -111,19 +106,16 @@ jobs:
             -executable=appdir/usr/bin/minidump_stackwalk \
             -executable=appdir/usr/bin/olive-crashhandler \
             --appimage-extract-and-run
-
           # Dump Crashpad symbols
           dump_syms appdir/usr/bin/olive-editor > olive-editor.sym
           # HACK: For some reason, minidump_stackwalk reads identifier as all 0s
           SYM_DIR=appdir/usr/share/olive-editor/symbols/olive-editor/000000000000000000000000000000000
           mkdir -p "$SYM_DIR"
           mv olive-editor.sym "$SYM_DIR"
-
           # Package AppImage
           $DOWNLOAD_TOOL https://github.com/AppImage/AppImageKit/releases/download/12/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           VERSION=${GITHUB_SHA::8} ./appimagetool-x86_64.AppImage appdir --appimage-extract-and-run
-
           # Set env variables
           filename=$(echo Olive*.AppImage)
           pkgname="${filename/x86_64/Linux-x86_64}"
@@ -131,7 +123,6 @@ jobs:
           basename="${filename%.*}"
           echo "pkgname=${pkgname}" >> $GITHUB_OUTPUT
           echo "artifact=${basename/x86_64/Linux-x86_64-${{ matrix.cc-compiler }}}" >> $GITHUB_OUTPUT
-
       - name: Upload Artifact to GitHub
         uses: actions/upload-artifact@v3
         continue-on-error: true
@@ -178,11 +169,9 @@ jobs:
           ARCH: ${{ matrix.os-arch }}
         run: |
           echo "PKGNAME=$(echo Olive-${GITHUB_SHA::8}-${PLATFORM}-${ARCH})" >> $GITHUB_ENV
-
       - name: Create Build Folder
         run: |
           cmake -E make_directory ${{ runner.workspace }}/build
-
       - name: Enable Developer Command Prompt (Windows)
         uses: ilammy/msvc-dev-cmd@v1
 
@@ -194,7 +183,6 @@ jobs:
           tar xzf olive-dep-win32-Release.tar.gz
           echo "$(pwd -W)/install" >> $GITHUB_PATH
           echo "$(pwd -W)/install/bin" >> $GITHUB_PATH
-
       - name: Acquire Google Crashpad
         shell: bash
         working-directory: ${{ runner.workspace }}
@@ -204,7 +192,6 @@ jobs:
           echo "$(pwd -W)/install" >> $GITHUB_PATH
           echo "$(pwd -W)/install/bin" >> $GITHUB_PATH
           echo "$(pwd -W)/install/crashpad" >> $GITHUB_PATH
-
       - name: Generate Patreon List
         shell: bash
         env:
@@ -222,13 +209,11 @@ jobs:
         run: |
           cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -G "${{ matrix.cmake-gen }}" \
             $CMAKE_ARGS
-
       - name: Build
         working-directory: ${{ runner.workspace }}/build
         shell: bash
         run: |
           cmake --build .
-
       #- name: Test
       #  working-directory: ${{ runner.workspace }}/build
       #  shell: bash
@@ -250,7 +235,6 @@ jobs:
           cp $(cygpath $ORIGINAL_WORKSPACE)/install/bin/*.dll olive-editor
           cp $(cygpath $ORIGINAL_WORKSPACE)/install/crashpad/out/Default/crashpad_handler.exe olive-editor
           cp $(cygpath $ORIGINAL_WORKSPACE)/install/bin/minidump_stackwalk.exe olive-editor
-
       - name: Export Crashpad symbols
         working-directory: ${{ runner.workspace }}/build
         shell: bash
@@ -261,7 +245,6 @@ jobs:
           SYM_DIR=olive-editor/symbols/olive-editor.pdb/${SYM_HEADER[3]}
           mkdir -p "$SYM_DIR"
           mv olive-editor.sym "$SYM_DIR"
-
       - name: Deploy Packages
         working-directory: ${{ runner.workspace }}/build
         shell: bash
@@ -273,12 +256,10 @@ jobs:
           $DOWNLOAD_TOOL https://nsis.sourceforge.io/mediawiki/images/6/68/ShellExecAsUser_amd64-Unicode.7z
           7z e ShellExecAsUser_amd64-Unicode.7z Plugins/x86-unicode/ShellExecAsUser.dll
           makensis -V4 -DX64 "-XOutFile $PKGNAME.exe" "-X!AddPluginDir /x86-unicode $(pwd -W)" olive.nsi
-
           # Create Portable ZIP
           echo -n > olive-editor/portable
           mkdir deploy
           mv olive-editor deploy
-
       - name: Upload Installer Artifact to GitHub
         uses: actions/upload-artifact@v3
         with:
@@ -333,25 +314,21 @@ jobs:
           ARCH: ${{ matrix.os-arch }}
         run: |
           echo "PKGNAME=$(echo Olive-${GITHUB_SHA::8}-${PLATFORM}-${ARCH})" >> $GITHUB_ENV
-
       - name: Create Build Folder
         run: |
           cmake -E make_directory ${{ runner.workspace }}/build
-
       - name: Acquire Dependencies
         shell: bash
         working-directory: ${{ runner.workspace }}
         run: |
           $DOWNLOAD_TOOL https://github.com/olive-editor/dependencies/releases/download/continuous/olive-dep-mac-${{ matrix.os-arch }}.tar.gz
           sudo tar xzf olive-dep-mac-${{ matrix.os-arch }}.tar.gz -C /
-
       - name: Acquire Google Crashpad
         shell: bash
         working-directory: ${{ runner.workspace }}
         run: |
           $DOWNLOAD_TOOL https://github.com/olive-editor/crashpad/releases/download/continuous/crashpad-mac-${{ matrix.os-arch }}.tar.gz
           sudo tar xzf crashpad-mac-${{ matrix.os-arch }}.tar.gz -C /
-
       - name: Generate Patreon List
         env:
           PATREON_KEY: ${{ secrets.PATREON_KEY }}
@@ -367,7 +344,6 @@ jobs:
         run: |
           brew update
           brew install ninja
-
       - name: Configure CMake
         shell: bash
         working-directory: ${{ runner.workspace }}/build
@@ -377,13 +353,11 @@ jobs:
               -DCMAKE_OSX_DEPLOYMENT_TARGET=${{ matrix.min-deploy }} -G "${{ matrix.cmake-gen }}" \
               -DCMAKE_OSX_ARCHITECTURES="${{ matrix.os-arch }}" \
               $CMAKE_ARGS
-
       - name: Build
         working-directory: ${{ runner.workspace }}/build
         shell: bash
         run: |
           cmake --build .
-
       - name: Test
         working-directory: ${{ runner.workspace }}/build
         shell: bash
@@ -397,31 +371,24 @@ jobs:
         run: |
           BUNDLE_NAME="Olive.app"
           brew install dylibbundler
-
           mkdir deploy
           cd deploy
-
           mv ../app/$BUNDLE_NAME .
           mkdir $BUNDLE_NAME/Contents/Frameworks
-
           # Copy Qt frameworks and plugins
           cp -Ra $DEP_LOCATION/lib/Qt*.framework $BUNDLE_NAME/Contents/Frameworks
           cp -Ra $DEP_LOCATION/plugins $BUNDLE_NAME/Contents
-
           dylibbundler -b -ns -x "$BUNDLE_NAME/Contents/MacOS/Olive" -s "$DEP_LOCATION/lib" -d "$BUNDLE_NAME/Contents/Frameworks" -p "@executable_path/../Frameworks" \
             -x $BUNDLE_NAME/Contents/MacOS/olive-crashhandler -x $BUNDLE_NAME/Contents/Frameworks/QtNetwork.framework/Versions/5/QtNetwork
-
           # HACK: On x86_64, dylibbundler doesn't resolve this symlink. Weirdly it does on ARM64,
           #       but perhaps I'll bring it up with them soon.
           cp -a $BUNDLE_NAME/Contents/Frameworks/libpng16.16.37.0.dylib $BUNDLE_NAME/Contents/Frameworks/libpng16.16.dylib
-
           # Crashpad symbols
           $DEP_LOCATION/bin/dump_syms $BUNDLE_NAME/Contents/MacOS/Olive > Olive.sym
           SYM_HEADER=($(head -n 1 Olive.sym)) # Read first line of symbol file
           SYM_DIR=$BUNDLE_NAME/Contents/Resources/symbols/Olive/${SYM_HEADER[3]}
           mkdir -p "$SYM_DIR"
           mv Olive.sym "$SYM_DIR"
-
       - name: Sign Application
         working-directory: ${{ runner.workspace }}/build/deploy
         shell: bash
@@ -432,33 +399,26 @@ jobs:
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           BUNDLE_NAME="Olive.app"
-
           # Install certificate
           CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
-
           # import certificate from secrets
           echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode --output $CERTIFICATE_PATH
-
           # create temporary keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-
           # import certificate to keychain
           security import $CERTIFICATE_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH
-
           # HACK: Remove unsignable frameworks
           rm -r $BUNDLE_NAME/Contents/Frameworks/QtUiPlugin.framework
           if [ "${{ matrix.os-arch }}" == "arm64" ]
           then
             rm -r $BUNDLE_NAME/Contents/Frameworks/QtZlib.framework
           fi
-
           # Sign application
           codesign --deep --sign "Developer ID Application: Olive Studios LLC" $BUNDLE_NAME
-
       - name: Deploy
         shell: bash
         working-directory: ${{ runner.workspace }}/build/deploy
@@ -467,7 +427,6 @@ jobs:
           cd ..
           hdiutil create img.dmg -volname Olive -fs HFS+ -srcfolder deploy
           hdiutil convert img.dmg -format UDZO -o $PKGNAME.dmg
-
       - name: Upload Artifact to GitHub
         uses: actions/upload-artifact@v3
         continue-on-error: true
