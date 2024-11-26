@@ -65,11 +65,11 @@ jobs:
       - name: Check GLIBC Version
         run: ldd --version
 
-      # Install Node.js (if necessary)
-      - name: Install Node.js
-        run: |
-          curl -sL https://deb.nodesource.com/setup_16.x | sudo -E bash -
-          sudo apt-get install -y nodejs
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+        node-version: '16'  # Use Node.js 16 instead of Node 20
+
 
       - name: Configure CMake
         run: |
