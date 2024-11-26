@@ -23,9 +23,11 @@ env:
   DOWNLOAD_TOOL: curl -fLOSs --retry 2 --retry-delay 60
   UPLOAD_TOOL: curl -X POST --retry 2 --retry-delay 60
   CMAKE_ARGS: -DUSE_WERROR=ON -DBUILD_TESTS=ON
+
 jobs:
   linux:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - build-type: RelWithDebInfo
@@ -33,16 +35,19 @@ jobs:
             cxx-compiler: clang++
             compiler-name: Clang 10.0.0
             cmake-gen: Ninja
-            os-name: Linux (Ubuntu 20.04)
+            os-name: Linux (CentOS 7)
     name: |
       ${{ matrix.os-name }}
       <${{ matrix.compiler-name }},
        ${{ matrix.build-type }},
        ${{ matrix.cmake-gen }}>
     runs-on: ubuntu-20.04
+    env:
+      ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
 
     container:
-      image: ubuntu:20.04
+      image: olivevideoeditor/ci-olive:2022.3
 
     steps:
       - name: Checkout Source Code
@@ -50,29 +55,21 @@ jobs:
         with:
           submodules: true
 
+      # Install missing dependencies (GLIBC, libstdc++)
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential curl libssl-dev libstdc++6 libc6-dev
+          sudo apt-get install -y libc6-dev libstdc++6
 
-      - name: Install Node.js 20
+      # Check GLIBC version (for debugging purposes)
+      - name: Check GLIBC Version
+        run: ldd --version
+
+      # Install Node.js (if necessary)
+      - name: Install Node.js
         run: |
-          curl -sL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+          curl -sL https://deb.nodesource.com/setup_16.x | sudo -E bash -
           sudo apt-get install -y nodejs
-
-      - name: Verify Node.js version
-        run: node -v
-
-      - name: Generate Patreon List
-        env:
-          PATREON_KEY: ${{ secrets.PATREON_KEY }}
-        run: |
-          pip3 install requests
-          cd $GITHUB_WORKSPACE/app/dialog/about
-          python3 patreon.py
-        if: github.event_name == 'push'
-        continue-on-error: true
-
 
       - name: Configure CMake
         run: |
@@ -83,7 +80,7 @@ jobs:
             -DCMAKE_C_COMPILER="${{ matrix.cc-compiler }}" \
             -DCMAKE_CXX_COMPILER="${{ matrix.cxx-compiler }}" \
             $CMAKE_ARGS
-
+          
       - name: Build
         working-directory: build
         run: |
@@ -93,15 +90,18 @@ jobs:
         working-directory: build
         run: |
           ctest -C ${{ matrix.build-type }} -V
-
+          
       - name: Create Package
         id: package
         working-directory: build
         env:
           ARCH: x86_64
         run: |
+          # Create install tree
           cmake --install app --prefix appdir/usr
+          # Inject custom AppRun (linuxdeployqt won't replace if it already exists)
           cp $GITHUB_WORKSPACE/app/packaging/linux/AppRun appdir
+          # Process AppDir
           /usr/local/linuxdeployqt-x86_64.AppImage \
             appdir/usr/share/applications/org.olivevideoeditor.Olive.desktop \
             -exclude-libs=libQt5Pdf.so,libQt5Qml.so,libQt5QmlModels.so,libQt5Quick.so,libQt5VirtualKeyboard.so \
@@ -110,26 +110,33 @@ jobs:
             -executable=appdir/usr/bin/minidump_stackwalk \
             -executable=appdir/usr/bin/olive-crashhandler \
             --appimage-extract-and-run
+
+          # Dump Crashpad symbols
           dump_syms appdir/usr/bin/olive-editor > olive-editor.sym
+          # HACK: For some reason, minidump_stackwalk reads identifier as all 0s
           SYM_DIR=appdir/usr/share/olive-editor/symbols/olive-editor/000000000000000000000000000000000
           mkdir -p "$SYM_DIR"
           mv olive-editor.sym "$SYM_DIR"
+
+          # Package AppImage
           $DOWNLOAD_TOOL https://github.com/AppImage/AppImageKit/releases/download/12/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           VERSION=${GITHUB_SHA::8} ./appimagetool-x86_64.AppImage appdir --appimage-extract-and-run
+          # Set env variables
           filename=$(echo Olive*.AppImage)
           pkgname="${filename/x86_64/Linux-x86_64}"
           mv "${filename}" "${pkgname}"
           basename="${filename%.*}"
           echo "pkgname=${pkgname}" >> $GITHUB_OUTPUT
-          echo "basename=${basename}" >> $GITHUB_OUTPUT
           echo "artifact=${basename/x86_64/Linux-x86_64-${{ matrix.cc-compiler }}}" >> $GITHUB_OUTPUT
+
       - name: Upload Artifact to GitHub
         uses: actions/upload-artifact@v3
         continue-on-error: true
         with:
           name: ${{ steps.package.outputs.artifact }}
           path: build/Olive*.AppImage
+
 
   windows:
     strategy:
