@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/FUNDING.yml'
+      - 'docker/**'
+      - 'CONTRIBUTING.md'
+      - 'README.md'
+  pull_request:
+    paths-ignore:
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/FUNDING.yml'
+      - 'app/ts/*.ts'
+      - 'docker/**'
+      - 'CONTRIBUTING.md'
+      - 'README.md'
+
+env:
+  DOWNLOAD_TOOL: curl -fLOSs --retry 2 --retry-delay 60
+  UPLOAD_TOOL: curl -X POST --retry 2 --retry-delay 60
+  CMAKE_ARGS: -DUSE_WERROR=ON -DBUILD_TESTS=ON
+
+jobs:
+  linux:
+    strategy:
+      matrix:
+        include:
+          - build-type: RelWithDebInfo
+            cc-compiler: clang
+            cxx-compiler: clang++
+            compiler-name: Clang 10.0.0
+            cmake-gen: Ninja
+            os-name: Linux (Ubuntu 20.04)
+    name: |
+      ${{ matrix.os-name }}
+      <${{ matrix.compiler-name }},
+       ${{ matrix.build-type }},
+       ${{ matrix.cmake-gen }}>
+    runs-on: ubuntu-20.04  # GitHub-hosted runner instead of Docker container
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - name: Generate Patreon List
+        env:
+          PATREON_KEY: ${{ secrets.PATREON_KEY }}
+        run: |
+          pip3 install requests
+          cd $GITHUB_WORKSPACE/app/dialog/about
+          python3 patreon.py
+        if: github.event_name == 'push'
+        continue-on-error: true
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang cmake ninja-build python3-pip
+
+      - name: Configure CMake
+        run: |
+          mkdir build
+          cd build
+          cmake .. -G "${{ matrix.cmake-gen }}" \
+            -DCMAKE_BUILD_TYPE="${{ matrix.build-type }}" \
+            -DCMAKE_C_COMPILER="${{ matrix.cc-compiler }}" \
+            -DCMAKE_CXX_COMPILER="${{ matrix.cxx-compiler }}" \
+            $CMAKE_ARGS
+
+      - name: Build
+        working-directory: build
+        run: |
+          cmake --build .
+
+      - name: Test
+        working-directory: build
+        run: |
+          ctest -C ${{ matrix.build-type }} -V
+
+      - name: Create Package
+        id: package
+        working-directory: build
+        env:
+          ARCH: x86_64
+        run: |
+          # Create install tree
+          cmake --install app --prefix appdir/usr
+          # Inject custom AppRun (linuxdeployqt won't replace if it already exists)
+          cp $GITHUB_WORKSPACE/app/packaging/linux/AppRun appdir
+          # Process AppDir
+          /usr/local/linuxdeployqt-x86_64.AppImage \
+            appdir/usr/share/applications/org.olivevideoeditor.Olive.desktop \
+            -exclude-libs=libQt5Pdf.so,libQt5Qml.so,libQt5QmlModels.so,libQt5Quick.so,libQt5VirtualKeyboard.so \
+            -bundle-non-qt-libs \
+            -executable=appdir/usr/bin/crashpad_handler \
+            -executable=appdir/usr/bin/minidump_stackwalk \
+            -executable=appdir/usr/bin/olive-crashhandler \
+            --appimage-extract-and-run
+          # Dump Crashpad symbols
+          dump_syms appdir/usr/bin/olive-editor > olive-editor.sym
+          # HACK: For some reason, minidump_stackwalk reads identifier as all 0s
+          SYM_DIR=appdir/usr/share/olive-editor/symbols/olive-editor/000000000000000000000000000000000
+          mkdir -p "$SYM_DIR"
+          mv olive-editor.sym "$SYM_DIR"
+          # Package AppImage
+          $DOWNLOAD_TOOL https://github.com/AppImage/AppImageKit/releases/download/12/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          VERSION=${GITHUB_SHA::8} ./appimagetool-x86_64.AppImage appdir --appimage-extract-and-run
+          # Set env variables
+          filename=$(echo Olive*.AppImage)
+          pkgname="${filename/x86_64/Linux-x86_64}"
+          mv "${filename}" "${pkgname}"
+          basename="${filename%.*}"
+          echo "pkgname=${pkgname}" >> $GITHUB_OUTPUT
+          echo "artifact=${basename/x86_64/Linux-x86_64-${{ matrix.cc-compiler }}}" >> $GITHUB_OUTPUT
+
+      - name: Upload Artifact to GitHub
+        uses: actions/upload-artifact@v3
+        continue-on-error: true
+        with:
+          name: ${{ steps.package.outputs.artifact }}
+          path: build/Olive*.AppImage
