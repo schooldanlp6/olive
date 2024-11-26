@@ -27,15 +27,8 @@ env:
 jobs:
   linux:
     strategy:
-      fail-fast: false
       matrix:
         include:
-          #- build-type: RelWithDebInfo
-          #  cc-compiler: gcc
-          #  cxx-compiler: g++
-          #  compiler-name: GCC 9.3.1
-          #  cmake-gen: Ninja
-          #  os-name: Linux (CentOS 7)
           - build-type: RelWithDebInfo
             cc-compiler: clang
             cxx-compiler: clang++
@@ -48,9 +41,6 @@ jobs:
        ${{ matrix.build-type }},
        ${{ matrix.cmake-gen }}>
     runs-on: ubuntu-20.04
-    env:
-      ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node16
-      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
     container:
       image: olivevideoeditor/ci-olive:2022.3
 
@@ -59,6 +49,11 @@ jobs:
         uses: actions/checkout@v3
         with:
           submodules: true
+
+      - name: Install Node.js 16
+        run: |
+          curl -fsSL https://deb.nodesource.com/setup_16.x | bash -
+          sudo apt-get install -y nodejs
 
       - name: Generate Patreon List
         env:
@@ -79,25 +74,25 @@ jobs:
             -DCMAKE_C_COMPILER="${{ matrix.cc-compiler }}" \
             -DCMAKE_CXX_COMPILER="${{ matrix.cxx-compiler }}" \
             $CMAKE_ARGS
+
       - name: Build
         working-directory: build
         run: |
           cmake --build .
+
       - name: Test
         working-directory: build
         run: |
           ctest -C ${{ matrix.build-type }} -V
+
       - name: Create Package
         id: package
         working-directory: build
         env:
           ARCH: x86_64
         run: |
-          # Create install tree
           cmake --install app --prefix appdir/usr
-          # Inject custom AppRun (linuxdeployqt won't replace if it already exists)
           cp $GITHUB_WORKSPACE/app/packaging/linux/AppRun appdir
-          # Process AppDir
           /usr/local/linuxdeployqt-x86_64.AppImage \
             appdir/usr/share/applications/org.olivevideoeditor.Olive.desktop \
             -exclude-libs=libQt5Pdf.so,libQt5Qml.so,libQt5QmlModels.so,libQt5Quick.so,libQt5VirtualKeyboard.so \
@@ -106,22 +101,19 @@ jobs:
             -executable=appdir/usr/bin/minidump_stackwalk \
             -executable=appdir/usr/bin/olive-crashhandler \
             --appimage-extract-and-run
-          # Dump Crashpad symbols
           dump_syms appdir/usr/bin/olive-editor > olive-editor.sym
-          # HACK: For some reason, minidump_stackwalk reads identifier as all 0s
           SYM_DIR=appdir/usr/share/olive-editor/symbols/olive-editor/000000000000000000000000000000000
           mkdir -p "$SYM_DIR"
           mv olive-editor.sym "$SYM_DIR"
-          # Package AppImage
           $DOWNLOAD_TOOL https://github.com/AppImage/AppImageKit/releases/download/12/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           VERSION=${GITHUB_SHA::8} ./appimagetool-x86_64.AppImage appdir --appimage-extract-and-run
-          # Set env variables
           filename=$(echo Olive*.AppImage)
           pkgname="${filename/x86_64/Linux-x86_64}"
           mv "${filename}" "${pkgname}"
           basename="${filename%.*}"
           echo "pkgname=${pkgname}" >> $GITHUB_OUTPUT
+          echo "basename=${basename}" >> $GITHUB_OUTPUT
           echo "artifact=${basename/x86_64/Linux-x86_64-${{ matrix.cc-compiler }}}" >> $GITHUB_OUTPUT
       - name: Upload Artifact to GitHub
         uses: actions/upload-artifact@v3
