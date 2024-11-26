@@ -23,7 +23,6 @@ env:
   DOWNLOAD_TOOL: curl -fLOSs --retry 2 --retry-delay 60
   UPLOAD_TOOL: curl -X POST --retry 2 --retry-delay 60
   CMAKE_ARGS: -DUSE_WERROR=ON -DBUILD_TESTS=ON
-
 jobs:
   linux:
     strategy:
@@ -34,15 +33,16 @@ jobs:
             cxx-compiler: clang++
             compiler-name: Clang 10.0.0
             cmake-gen: Ninja
-            os-name: Linux (CentOS 7)
+            os-name: Linux (Ubuntu 20.04)
     name: |
       ${{ matrix.os-name }}
       <${{ matrix.compiler-name }},
        ${{ matrix.build-type }},
        ${{ matrix.cmake-gen }}>
     runs-on: ubuntu-20.04
+
     container:
-      image: olivevideoeditor/ci-olive:2022.3
+      image: ubuntu:20.04
 
     steps:
       - name: Checkout Source Code
@@ -50,10 +50,18 @@ jobs:
         with:
           submodules: true
 
-      - name: Install Node.js 16
+      - name: Install Dependencies
         run: |
-          curl -fsSL https://deb.nodesource.com/setup_16.x | bash -
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl libssl-dev libstdc++6 libc6-dev
+
+      - name: Install Node.js 20
+        run: |
+          curl -sL https://deb.nodesource.com/setup_20.x | sudo -E bash -
           sudo apt-get install -y nodejs
+
+      - name: Verify Node.js version
+        run: node -v
 
       - name: Generate Patreon List
         env:
@@ -64,6 +72,7 @@ jobs:
           python3 patreon.py
         if: github.event_name == 'push'
         continue-on-error: true
+
 
       - name: Configure CMake
         run: |
