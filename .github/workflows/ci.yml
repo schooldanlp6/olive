@@ -1,98 +1,50 @@
-name: CI
+name: Build Olive
 
 on:
   push:
     branches:
       - master
-    paths-ignore:
-      - '.github/ISSUE_TEMPLATE/**'
-      - '.github/FUNDING.yml'
-      - 'docker/**'
-      - 'CONTRIBUTING.md'
-      - 'README.md'
   pull_request:
-    paths-ignore:
-      - '.github/ISSUE_TEMPLATE/**'
-      - '.github/FUNDING.yml'
-      - 'app/ts/*.ts'
-      - 'docker/**'
-      - 'CONTRIBUTING.md'
-      - 'README.md'
-
-env:
-  DOWNLOAD_TOOL: curl -fLOSs --retry 2 --retry-delay 60
-  UPLOAD_TOOL: curl -X POST --retry 2 --retry-delay 60
-  CMAKE_ARGS: -DUSE_WERROR=ON -DBUILD_TESTS=ON
+    branches:
+      - master
 
 jobs:
-  linux:
-    strategy:
-      matrix:
-        include:
-          - build-type: RelWithDebInfo
-            cc-compiler: clang
-            cxx-compiler: clang++
-            compiler-name: Clang 10.0.0
-            cmake-gen: Ninja
-            os-name: Linux (Ubuntu 20.04)
-    name: |
-      ${{ matrix.os-name }}
-      <${{ matrix.compiler-name }},
-       ${{ matrix.build-type }},
-       ${{ matrix.cmake-gen }}>
-    runs-on: ubuntu-20.04  # GitHub-hosted runner instead of Docker container
+  build:
+    runs-on: ubuntu-20.04
 
     steps:
-      - name: Checkout Source Code
+      - name: Checkout repository
         uses: actions/checkout@v3
-        with:
-          submodules: true
 
-      - name: Install Dependencies
+      - name: Set up Clang and build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang cmake ninja-build python3-pip
-          # Install OpenGL libraries
-          sudo apt-get install -y libgl1-mesa-dev libglu1-mesa-dev
-
-      - name: Configure CMake
-        run: |
-          mkdir build
-          cd build
-          cmake .. -G "${{ matrix.cmake-gen }}" \
-            -DCMAKE_BUILD_TYPE="${{ matrix.build-type }}" \
-            -DCMAKE_C_COMPILER="${{ matrix.cc-compiler }}" \
-            -DCMAKE_CXX_COMPILER="${{ matrix.cxx-compiler }}" \
-            $CMAKE_ARGS
-
-      - name: Build
-        working-directory: build
-        run: |
-          cmake --build .
-
-      - name: Test
-        working-directory: build
-        run: |
-          ctest -C ${{ matrix.build-type }} -V
-
-      - name: Create Package
-        id: package
-        working-directory: build
-        env:
-          ARCH: x86_64
-        run: |
-          # Create install tree
-          cmake --install app --prefix appdir/usr
-          # Inject custom AppRun (linuxdeployqt won't replace if it already exists)
-          cp $GITHUB_WORKSPACE/app/packaging/linux/AppRun appdir/usr/bin/
-          # Bundle Qt libraries (if necessary)
-          $GITHUB_WORKSPACE/app/packaging/linux/linuxdeployqt-x86_64.AppImage appdir/usr/bin/Olive.desktop -appimage
+          sudo apt-get install -y clang cmake ninja-build build-essential python3-pip
+          sudo apt-get install -y libegl-dev libegl-mesa0 libegl1 libgl-dev libgles-dev libgles1 libgles2 libglu1-mesa libglvnd-dev libglx-dev libopengl-dev libopengl0
           
-      - name: Upload Build Artifact
+      - name: Install OpenColorIO
+        run: |
+          # Install required dependencies
+          sudo apt-get install -y libboost-all-dev libyaml-cpp-dev
+          
+          # Install OpenColorIO
+          git clone --branch master https://github.com/AcademySoftwareFoundation/OpenColorIO.git /tmp/OpenColorIO
+          cd /tmp/OpenColorIO
+          cmake -DCMAKE_INSTALL_PREFIX=/usr .
+          sudo make -j$(nproc)
+          sudo make install
+          
+      - name: Create build directory
+        run: mkdir build
+
+      - name: Build the project
+        run: |
+          cd build
+          cmake ..
+          make -j$(nproc)
+
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v3
         with:
           name: olive-build-artifact
-          path: |
-            build/OliveAppImage
-            build/appdir/usr/bin/Olive
-            build/appdir/usr/lib/* # Include any libraries or other artifacts
+          path: ./build/Olive-*.appimage
